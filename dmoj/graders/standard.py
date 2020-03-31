@@ -7,8 +7,6 @@ from dmoj.error import OutputLimitExceeded
 from dmoj.executors import executors
 from dmoj.graders.base import BaseGrader
 from dmoj.result import CheckerResult, Result
-from dmoj.utils.error import print_protection_fault
-from dmoj.utils.os_ext import strsignal
 
 log = logging.getLogger('dmoj.graders')
 
@@ -19,24 +17,13 @@ class StandardGrader(BaseGrader):
 
         input = case.input_data()  # cache generator data
 
-        self._current_proc = self.binary.launch(time=self.problem.time_limit,
-                                                memory=self.problem.memory_limit,
-                                                symlinks=case.config.symlinks,
-                                                stdin=subprocess.PIPE,
-                                                stdout=subprocess.PIPE,
-                                                stderr=subprocess.PIPE,
-                                                wall_time=case.config.wall_time_factor * self.problem.time_limit)
+        self._launch_process(case)
 
         error = self._interact_with_process(case, result, input)
 
         process = self._current_proc
 
-        result.max_memory = process.max_memory or 0.0
-        result.execution_time = process.execution_time or 0.0
-        result.wall_clock_time = process.wall_clock_time or 0.0
-
-        # Translate status codes/process results into Result object for status codes
-        result.set_result_flag(process)
+        self.populate_result(error, result, process)
 
         check = self.check_result(case, result)
 
@@ -47,9 +34,9 @@ class StandardGrader(BaseGrader):
 
         result.result_flag |= [Result.WA, Result.AC][check.passed]
         result.points = check.points
-        result.extended_feedback = check.extended_feedback
+        result.feedback = check.feedback or result.feedback
+        result.extended_feedback = check.extended_feedback or result.extended_feedback
 
-        self.update_feedback(check, error, process, result)
         case.free_data()
 
         # Where CPython has reference counting and a GC, PyPy only has a GC. This means that while CPython
@@ -64,23 +51,8 @@ class StandardGrader(BaseGrader):
 
         return result
 
-    def update_feedback(self, check, error, process, result):
-        result.feedback = (check.feedback or (process.feedback if hasattr(process, 'feedback') else
-                           getattr(self.binary, 'get_feedback', lambda x, y, z: '')(error, result, process)))
-        if not result.feedback and result.get_main_code() == Result.RTE:
-            if not process.was_initialized:
-                # Process may failed to initialize, resulting in a SIGKILL without any prior signals.
-                # See <https://github.com/DMOJ/judge/issues/179> for more details.
-                result.feedback = 'failed initializing'
-            else:
-                result.feedback = strsignal(process.signal).lower()
-
-        if process.protection_fault:
-            syscall, callname, args = process.protection_fault
-            print_protection_fault(process.protection_fault)
-            callname = callname.replace('sys_', '', 1)
-            message = '%s syscall disallowed' % callname
-            result.feedback = message
+    def populate_result(self, error, result, process):
+        self.binary.populate_result(error, result, process)
 
     def check_result(self, case, result):
         # If the submission didn't crash and didn't time out, there's a chance it might be AC
@@ -91,11 +63,10 @@ class StandardGrader(BaseGrader):
         # checker is a `partial` object, NOT a `function` object
         if not result.result_flag or getattr(checker.func, 'run_on_error', False):
             try:
-                # Checkers might crash if any data is None, so force at least empty string
-                check = checker(result.proc_output or b'',
-                                case.output_data() or b'',
+                check = checker(result.proc_output,
+                                case.output_data(),
                                 submission_source=self.source,
-                                judge_input=case.input_data() or b'',
+                                judge_input=case.input_data(),
                                 point_value=case.points,
                                 case_position=case.position,
                                 batch=case.batch,
@@ -113,14 +84,20 @@ class StandardGrader(BaseGrader):
 
         return check
 
+    def _launch_process(self, case):
+        self._current_proc = self.binary.launch(
+            time=self.problem.time_limit, memory=self.problem.memory_limit, symlinks=case.config.symlinks,
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            wall_time=case.config.wall_time_factor * self.problem.time_limit,
+        )
+
     def _interact_with_process(self, case, result, input):
         process = self._current_proc
         try:
             result.proc_output, error = process.communicate(input, outlimit=case.config.output_limit_length,
                                                             errlimit=1048576)
         except OutputLimitExceeded:
-            error = None
-            result.result_flag |= Result.OLE
+            error = b''
             try:
                 process.kill()
             except RuntimeError as e:

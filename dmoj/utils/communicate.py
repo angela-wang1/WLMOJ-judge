@@ -81,6 +81,7 @@ def safe_communicate(proc, input=None, outlimit=None, errlimit=None):
                 fd2output[fd].append(data)
                 fd2length[fd] += len(data)
                 if fd2length[fd] > fd2limit[fd]:
+                    proc.mark_ole()
                     raise OutputLimitExceeded(
                         'stdout' if proc.stdout is not None and proc.stdout.fileno() == fd else 'stderr',
                         fd2limit[fd])
@@ -89,10 +90,8 @@ def safe_communicate(proc, input=None, outlimit=None, errlimit=None):
                 close_unregister_and_remove(fd)
 
     # All data exchanged.  Translate lists into strings.
-    if stdout is not None:
-        stdout = b''.join(stdout)
-    if stderr is not None:
-        stderr = b''.join(stderr)
+    stdout = b''.join(stdout) if stdout is not None else b''
+    stderr = b''.join(stderr) if stderr is not None else b''
 
     proc.wait()
     return stdout, stderr

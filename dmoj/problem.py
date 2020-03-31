@@ -12,10 +12,9 @@ from yaml.scanner import ScannerError
 
 from dmoj import checkers
 from dmoj.config import ConfigNode, InvalidInitException
-from dmoj.error import InternalError
 from dmoj.generator import GeneratorManager
 from dmoj.judgeenv import env, get_problem_root
-from dmoj.result import Result
+from dmoj.utils.helper_files import parse_helper_file_error
 from dmoj.utils.module import load_module_from_file
 
 DEFAULT_TEST_CASE_INPUT_PATTERN = r'^(?=.*?\.in|in).*?(?:(?:^|\W)(?P<batch>\d+)[^\d\s]+)?(?P<case>\d+)[^\d\s]*$'
@@ -23,10 +22,11 @@ DEFAULT_TEST_CASE_OUTPUT_PATTERN = r'^(?=.*?\.out|out).*?(?:(?:^|\W)(?P<batch>\d
 
 
 class Problem:
-    def __init__(self, problem_id, time_limit, memory_limit):
+    def __init__(self, problem_id, time_limit, memory_limit, meta):
         self.id = problem_id
         self.time_limit = time_limit
         self.memory_limit = memory_limit
+        self.meta = ConfigNode(meta)
         self.generator_manager = GeneratorManager()
 
         self.problem_data = ProblemDataManager(problem_id)
@@ -46,6 +46,7 @@ class Problem:
                 'binary_data': False,
                 'short_circuit': True,
                 'symlinks': {},
+                'meta': meta,
             })
         except (IOError, KeyError, ParserError, ScannerError) as e:
             raise InvalidInitException(str(e))
@@ -292,24 +293,7 @@ class TestCase:
         stdout, stderr = proc.unsafe_communicate(input)
         self._generated = list(map(self._normalize, (stdout, stderr)))
 
-        if proc.tle:
-            raise InternalError('generator timed out (> %s seconds)' % time_limit)
-        if proc.mle:
-            raise InternalError('generator ran out of memory (> %s Kb)' % memory_limit)
-        if proc.protection_fault:
-            syscall, callname, args = proc.protection_fault
-            raise InternalError('generator invoked disallowed syscall %s (%s)' % (syscall, callname))
-        if proc.returncode:
-            error = 'generator exited with nonzero code %s' % proc.returncode
-            # To get the feedback, we need a Result object, but we lack a Case object
-            # So we set it to None because we don't need to access it
-            result = Result(None)
-            result.set_result_flag(proc)
-            feedback = (proc.feedback if hasattr(executor, 'feedback') and proc.feedback
-                        else (getattr(executor, 'get_feedback', lambda x, y, z: '')(stderr, result, proc)))
-            if feedback:
-                error += ' with feedback: %s' % feedback
-            raise InternalError(error)
+        parse_helper_file_error(proc, executor, 'generator', stderr, time_limit, memory_limit)
 
     def input_data(self):
         gen = self.config.generator
@@ -322,7 +306,7 @@ class TestCase:
             if self._generated[0]:
                 return self._generated[0]
         # in file is optional
-        return self._normalize(self.problem.problem_data[self.config['in']]) if self.config['in'] else ''
+        return self._normalize(self.problem.problem_data[self.config['in']]) if self.config['in'] else b''
 
     def output_data(self):
         if self.config.out:
@@ -332,6 +316,7 @@ class TestCase:
             if self._generated is None:
                 self._run_generator(gen, args=self.config.generator_args)
             return self._generated[1]
+        return b''
 
     def checker(self):
         try:

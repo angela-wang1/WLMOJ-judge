@@ -9,7 +9,6 @@ from typing import Optional
 
 from dmoj.error import CompileError, InternalError
 from dmoj.executors.compiled_executor import CompiledExecutor
-from dmoj.result import Result
 from dmoj.utils.unicode import utf8bytes, utf8text
 
 recomment = re.compile(r'/\*.*?\*/', re.DOTALL | re.U)
@@ -92,16 +91,20 @@ class JavaExecutor(CompiledExecutor):
         return Popen(['java', self.get_vm_mode(), self._class_name] + list(args),
                      executable=self.get_vm(), cwd=self._dir, **kwargs)
 
-    def get_feedback(self, stderr, result, process):
+    def parse_feedback_from_stderr(self, stderr, process):
         if process.returncode:
             try:
                 with open(os.path.join(self._dir, 'submission_jvm_crash.log'), 'r') as err:
-                    raise InternalError('\n\n' + err.read())
+                    log = err.read()
+                    # "Newer" (post-Java 8) JVMs regressed a bit in terms of handling out-of-memory situations during
+                    # initialization, whereby they now dump a crash log rather than exiting with
+                    # java.lang.OutOfMemoryError. Handle this case so that we don't erroneously emit internal errors.
+                    if 'There is insufficient memory for the Java Runtime Environment' in log:
+                        return 'insufficient memory to initialize JVM'
+                    else:
+                        raise InternalError('\n\n' + log)
             except IOError:
                 pass
-
-        if not result.result_flag & Result.IR:
-            return ''
 
         if b'Error: Main method not found in class' in stderr:
             exception = "public static void main(String[] args) not found"

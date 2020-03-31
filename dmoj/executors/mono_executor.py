@@ -62,14 +62,12 @@ class MonoExecutor(CompiledExecutor):
         res['mono'] = ['mono']
         return res
 
-    def get_feedback(self, stderr, result, process):
-        if not result.result_flag & Result.IR:
-            return ''
-
-        if b'Garbage collector could not allocate' in stderr:
+    def populate_result(self, stderr, result, process):
+        super().populate_result(stderr, result, process)
+        if process.is_ir and b'Garbage collector could not allocate' in stderr:
             result.result_flag |= Result.MLE
-            return ''
 
+    def parse_feedback_from_stderr(self, stderr, process):
         match = deque(reexception.finditer(utf8text(stderr, 'replace')), maxlen=1)
         if not match:
             return ''

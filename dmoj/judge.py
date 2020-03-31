@@ -81,16 +81,18 @@ class Judge:
         """
         self.updater_signal.set()
 
-    def _block_and_grade(self, problem, language, source, short_circuit, meta, report=print):
+    def _block_and_grade(self, problem, language, source, short_circuit, report=print):
         if 'signature_grader' in problem.config:
             grader_class = graders.SignatureGrader
+        elif 'interactive' in problem.config:
+            grader_class = graders.BridgedInteractiveGrader
         elif 'custom_judge' in problem.config:
             grader_class = graders.CustomGrader
         else:
             grader_class = graders.StandardGrader
 
         try:
-            self.current_grader = grader_class(self, problem, language, utf8bytes(source), meta)
+            self.current_grader = grader_class(self, problem, language, utf8bytes(source))
         except CompileError as compilation_error:
             error = compilation_error.args[0] or b'compiler exited abnormally'
 
@@ -160,8 +162,8 @@ class Judge:
                               % (problem_id, id, language)))
 
             try:
-                problem = Problem(problem_id, time_limit, memory_limit)
-                self._block_and_grade(problem, language, source, short_circuit, meta, report=report)
+                problem = Problem(problem_id, time_limit, memory_limit, meta)
+                self._block_and_grade(problem, language, source, short_circuit, report=report)
             except Exception:
                 self.log_internal_error()
 
@@ -626,11 +628,12 @@ def main():  # pragma: no cover
     if not sanity_check():
         return 1
 
-    from dmoj import judgeenv, executors
+    from dmoj import judgeenv, contrib, executors
 
     judgeenv.load_env()
 
     executors.load_executors()
+    contrib.load_contrib_modules()
 
     if hasattr(signal, 'SIGUSR2'):
         signal.signal(signal.SIGUSR2, signal.SIG_IGN)

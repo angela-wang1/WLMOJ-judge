@@ -5,7 +5,7 @@ import traceback
 
 import yaml
 
-from dmoj import executors, judgeenv
+from dmoj import contrib, executors, judgeenv
 from dmoj.judge import Judge
 from dmoj.judgeenv import get_problem_root, get_supported_problems
 from dmoj.utils.ansi import ansi_style, print_ansi
@@ -213,7 +213,7 @@ class Tester:
         for source in sources:
             self.sub_id += 1
             self.manager.set_expected(codes_all, codes_cases, feedback_all, feedback_cases)
-            self.judge.begin_grading(self.sub_id, problem, language, source, time, memory, False, False, blocking=True,
+            self.judge.begin_grading(self.sub_id, problem, language, source, time, memory, False, {}, blocking=True,
                                      report=output_case)
             fails += self.manager.failed
         return fails
@@ -254,6 +254,7 @@ def main():
                         format='%(levelname)s %(asctime)s %(module)s %(message)s')
 
     executors.load_executors()
+    contrib.load_contrib_modules()
 
     tester = Tester(judgeenv.problem_regex, judgeenv.case_regex)
     fails = tester.test_all()

@@ -3,7 +3,6 @@ from collections import deque
 
 from dmoj.executors.compiled_executor import CompiledExecutor
 from dmoj.executors.mixins import ScriptDirectoryMixin
-from dmoj.result import Result
 from dmoj.utils.unicode import utf8bytes, utf8text
 
 retraceback = re.compile(r'Traceback \(most recent call last\):\n.*?\n([a-zA-Z_]\w*)(?::[^\n]*?)?$', re.S | re.M)
@@ -48,8 +47,8 @@ runpy.run_path(sys.argv[0], run_name='__main__')
             fo.write(utf8bytes(source_code))
             loader.write(self.unbuffered_loader_script if self.unbuffered else self.loader_script)
 
-    def get_feedback(self, stderr, result, process):
-        if not result.result_flag & Result.IR or not stderr or len(stderr) > 2048:
+    def parse_feedback_from_stderr(self, stderr, process):
+        if not stderr or len(stderr) > 2048:
             return ''
         match = deque(retraceback.finditer(utf8text(stderr, 'replace')), maxlen=1)
         if not match:
